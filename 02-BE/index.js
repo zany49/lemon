@@ -1,58 +1,70 @@
-import express from "express"
-import dotenv from"dotenv";
-import  {readdirSync} from "fs";
-import cors from 'cors';
-import mongoose from 'mongoose';
-import { createRedisClient } from "./redisClient/redisClient.js"
+import express from "express";
+import dotenv from "dotenv";
+import { readdirSync } from "fs";
+import cors from "cors";
+import mongoose from "mongoose";
+import { createRedisClient } from "../redisClient/redisClient.js";
+import cookieParser from "cookie-parser";
+import serverless from "serverless-http";
 import path from "path";
 import { fileURLToPath } from "url";
-import cookieParser from 'cookie-parser';
 
-const app = express();
-app.use(express.json());
 dotenv.config();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 app.use(
   cors({
-    origin: "http://localhost:3000", 
-    credentials: true,                 
+    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+    credentials: true,
   })
-)
+);
 
-mongoose
-  .connect(
-    process.env.MONGO_URL
-  )
-  .then(() => console.log("Connected to db"))
-  .catch((err) => console.log("DB connection error", err));
 
-app.get("/", async (req, res) => {
-  return res.send("Hello");
-});
-// readdirSync("./routes").map((r) => app.use("/api", import(`./routes/${r}`)));
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+let isConnected = false;
+async function connectToDB() {
+  if (!isConnected) {
+    await mongoose.connect(process.env.MONGO_URL);
+    isConnected = true;
+    console.log("Connected to MongoDB");
+  }
+}
+let redisClient;
+async function getRedisClient() {
+  if (!redisClient) {
+    redisClient = await createRedisClient();
+    await redisClient.connect();
+    console.log("Connected to Redis");
+  }
+  return redisClient;
+}
 
-for (const file of readdirSync("./routes")) {
-  const routeModule = await import(`./routes/${file}`);
+
+for (const file of readdirSync(path.join(__dirname, "../routes"))) {
+  const routeModule = await import(`../routes/${file}`);
   app.use("/api", routeModule.default);
 }
 
-const PORT = process.env.PORT || 4000;
+app.get("/", async (req, res) => {
+  await connectToDB();
+  await getRedisClient();
+  return res.send("Hello from Local or Vercel!");
+});
 
 
-(async () => {
-  const redisClient = await createRedisClient();
-  redisClient
-    .connect()
-    .then(() => {
-      app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-    })
-    .catch((e) => {
-      console.log("ERROR IN REDIS SERVER", e);
-    });
-})();
+if (process.env.NODE_ENV !== "production") {
+  const PORT = process.env.PORT || 4000;
+  app.listen(PORT, async () => {
+    await connectToDB();
+    await getRedisClient();
+    console.log(`Local server running on http://localhost:${PORT}`);
+  });
+}
+
+export default serverless(app);
