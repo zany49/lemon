@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import { readdirSync } from "fs";
 import cors from "cors";
 import mongoose from "mongoose";
-import { createRedisClient } from "../redisClient/redisClient.js";
+import { createRedisClient } from "./redisClient/redisClient.js";
 import cookieParser from "cookie-parser";
 import serverless from "serverless-http";
 import path from "path";
@@ -46,10 +46,11 @@ async function getRedisClient() {
 }
 
 
-for (const file of readdirSync(path.join(__dirname, "../routes"))) {
-  const routeModule = await import(`../routes/${file}`);
+for (const file of readdirSync("./routes")) {
+  const routeModule = await import(`./routes/${file}`);
   app.use("/api", routeModule.default);
 }
+
 
 app.get("/", async (req, res) => {
   await connectToDB();
